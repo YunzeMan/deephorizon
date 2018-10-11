@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 def center_crop(im):
     """
     Crop input image into square
-    :param im:
+    :param im: input image
     :return: cropped image and size
     """
     sz = im.shape[0:-1]
