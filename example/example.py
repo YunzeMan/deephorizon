@@ -3,6 +3,8 @@ import caffe
 import numpy as np
 import scipy.io as sio
 import matplotlib.pyplot as plt
+import glob
+import os
 
 
 def center_crop(im):
@@ -23,7 +25,8 @@ def center_crop(im):
         ul_y = 0
         x_inds = [ul_x, ul_x+side_length-1]
         y_inds = [ul_y, sz[0]-1]
-
+    y_inds = map(int, y_inds)
+    x_inds = map(int, x_inds)
     c_im = im[y_inds[0]:y_inds[1]+1, x_inds[0]:x_inds[1]+1, :]
 
     return c_im, [c_im.shape, x_inds, y_inds]
@@ -110,7 +113,10 @@ if __name__ == '__main__':
  
     # image credit:
     # https://commons.wikimedia.org/wiki/File:HFX_Airport_4.jpg
-    fname = 'airport.jpg'
+    img_dir = "/home/yunze/Dataset/Apolloscape/road02_ins/ColorImage/Record003/Camera 5/"
+    save_dir = "/home/yunze/Projects/Plane-estimation/deephorizon/example/demo"
+    images = sorted(glob.glob(img_dir + "*.jpg"))
+    # fname = 'airport.jpg'
 
     # load bin edges
     bin_edges = sio.loadmat('bins.mat')
@@ -121,25 +127,28 @@ if __name__ == '__main__':
     caffe.set_mode_cpu()
     net = caffe.Net(deploy_file, model_file, caffe.TEST)
     caffe_sz = np.asarray(net.blobs['data'].shape)[2:]
+    for i in range(len(images)):
+        # preprocess image
+        im = caffe.io.load_image(images[i])
+        sz = im.shape
+        center_im, crop_info = center_crop(im)
+        caffe_input = preprocess(center_im, caffe_sz)
 
-    # preprocess image
-    im = caffe.io.load_image(fname)
-    sz = im.shape
-    center_im, crop_info = center_crop(im)
-    caffe_input = preprocess(center_im, caffe_sz)
+        # push through the network
+        result = net.forward(data=caffe_input, blobs=['prob_slope', 'prob_offset'])
+        slope_dist = result['prob_slope'][0]
+        offset_dist = result['prob_offset'][0]
 
-    # push through the network
-    result = net.forward(data=caffe_input, blobs=['prob_slope', 'prob_offset'])
-    slope_dist = result['prob_slope'][0]
-    offset_dist = result['prob_offset'][0]
+        # convert distributions to horizon line
+        left, right = compute_horizon(slope_dist, offset_dist, caffe_sz, sz, crop_info, bin_edges)
+        print(left[1], right[1])
 
-    # convert distributions to horizon line
-    left, right = compute_horizon(slope_dist, offset_dist, caffe_sz, sz, crop_info, bin_edges)
-    print(left[1], right[1])
-
-    plt.figure(1)
-    plt.imshow(im, extent=[-sz[1]/2, sz[1]/2, -sz[0]/2, sz[0]/2])
-    plt.plot([left[0], right[0]], [left[1], right[1]], 'r')
-    ax = plt.gca()
-    ax.autoscale_view('tight')
-    plt.show()
+        plt.figure(1)
+        plt.imshow(im, extent=[-sz[1]/2, sz[1]/2, -sz[0]/2, sz[0]/2])
+        plt.plot([left[0], right[0]], [left[1], right[1]], 'r')
+        ax = plt.gca()
+        ax.autoscale_view('tight')
+        # plt.show()
+        # plt.savefig('demo.png')
+        plt.savefig(os.path.join(save_dir, images[i].split('/')[-1]))
+        plt.close()
